@@ -1310,8 +1310,8 @@ const isAr = ()=>state.lang==="ar";
 function stTitle(s){ return isAr() && AR_STEP[s.id] ? AR_STEP[s.id] : s.title; }
 function ui(k, en){ return isAr() ? AR_UI[k] : en; }
 function renderAsk(){
-  const qs=["How do I register my lease?","Comment enregistrer mon bail ?","هل يمكنني إحضار أدويتي؟","A recruiter wants a visa fee. Is that normal?","How do I check a property listing is real?","Can I open a bank account before my ID card?","How do I make friends here?","I lost my job, can I claim unemployment insurance?","Je quitte les Émirats, que dois-je fermer ?","Impôts sur les cryptos ?","मैं अपना लीज़ कैसे रजिस्टर करूँ?"];
-  let h=`<div><p class="sec-t">Ask Landed, in any language</p><p class="note">OpenAI reads the question in any language, picks the verified card that answers it and replies in your language, with source and date. If no card answers, it says so instead of guessing.</p></div>
+  const qs=["What should I do this week?","How do I register my lease?","Comment enregistrer mon bail ?","هل يمكنني إحضار أدويتي؟","A recruiter wants a visa fee. Is that normal?","How do I check a property listing is real?","Can I open a bank account before my ID card?","How do I make friends here?","I lost my job, can I claim unemployment insurance?","Je quitte les Émirats, que dois-je fermer ?","Impôts sur les cryptos ?","मैं अपना लीज़ कैसे रजिस्टर करूँ?"];
+  let h=`<div><p class="sec-t">Ask Landed, in any language</p><p class="note">Your personal agent knows where you are in the move: what is done, what is open, who you wait on. Names, IDs, phones and emails are masked before anything reaches OpenAI. Facts come only from verified cards, in your language.</p></div>
     <div class="qchips">${qs.map(q=>`<button data-q="${esc(q)}" dir="auto">${esc(q)}</button>`).join("")}</div>
     <div class="list" id="chatList">${state.chat.map(m=>m.me?`<div class="bubble me" dir="auto">${esc(m.text)}</div>`:botHtml(m)).join("")}</div>
     <form class="askrow" id="askForm"><input id="askInput" placeholder="Ask in any language" autocomplete="off" dir="auto"><button class="btn primary" type="submit">Ask</button></form>`;
@@ -1320,11 +1320,13 @@ function renderAsk(){
   $("#askForm").onsubmit=e=>{e.preventDefault(); const v=$("#askInput").value.trim(); if(v) ask(v);};
   const cl=$("#phBody"); cl.scrollTop=cl.scrollHeight;
 }
+function piiHtml(ai){ if(!ai.pii) return ""; const t=Object.entries(ai.pii.types||{}).map(([k,v])=>k+" ×"+v).join(", ");
+  return `<details dir="ltr" style="margin-top:6px"><summary class="note">🔒 ${ai.pii.count} personal details masked before OpenAI${t?" ("+esc(t)+")":""}</summary><pre class="json" style="white-space:pre-wrap;font-size:11px;margin-top:6px">${esc(ai.pii.preview||"")}</pre></details>`; }
 function botHtml(m){
   if(m.pending) return `<div class="bubble bot"><span class="note">Checking verified cards with OpenAI…</span></div>`;
   if(m.ai){ const rtl2=/^(ar|fa|ur|he)/.test(m.ai.lang||"")?' dir="rtl"':' dir="auto"';
-    if(!m.card) return `<div class="bubble bot"${rtl2}>${esc(m.ai.answer||REFUSE.en)}<div class="grounded" dir="ltr">OpenAI ${esc(m.ai.model)} · no verified card answers this · nothing invented</div></div>`;
-    return `<div class="bubble bot"${rtl2}><b>${esc(m.ai.title||m.card.t)}</b><br>${esc(m.ai.answer)}<div class="src" dir="ltr">Source: <a href="${m.card.u}" target="_blank" rel="noopener">${esc(m.card.s)}</a> · verified ${m.card.v} (test)</div><details dir="ltr"><summary class="note">Verified card it used</summary><small>${esc(m.card.a)}</small></details><div class="grounded" dir="ltr">OpenAI ${esc(m.ai.model)} · grounded on 1 of ${CARDS.length} verified cards · ${esc(m.ai.langName||m.ai.lang)}</div></div>`; }
+    if(!m.card) return `<div class="bubble bot"${rtl2}>${esc(m.ai.answer||REFUSE.en)}${m.ai.next?`<div class="ctx" style="margin-top:8px"><b>${esc(m.ai.nextLabel||"For you, next")}</b>${esc(m.ai.next)}</div>`:""}${piiHtml(m.ai)}<div class="grounded" dir="ltr">OpenAI ${esc(m.ai.model)} · no verified card answers this · nothing invented</div></div>`;
+    return `<div class="bubble bot"${rtl2}><b>${esc(m.ai.title||m.card.t)}</b><br>${esc(m.ai.answer)}<div class="src" dir="ltr">Source: <a href="${m.card.u}" target="_blank" rel="noopener">${esc(m.card.s)}</a> · verified ${m.card.v} (test)</div><details dir="ltr"><summary class="note">Verified card it used</summary><small>${esc(m.card.a)}</small></details>${m.ai.next?`<div class="ctx" style="margin-top:8px"><b>${esc(m.ai.nextLabel||"For you, next")}</b>${esc(m.ai.next)}</div>`:""}${piiHtml(m.ai)}<div class="grounded" dir="ltr">OpenAI ${esc(m.ai.model)} · personal agent · grounded on 1 of ${CARDS.length} verified cards · ${esc(m.ai.langName||m.ai.lang)}</div></div>`; }
   const L=m.lang||"en", rtl=L==="ar"?' dir="rtl"':"";
   if(!m.card) return `<div class="bubble bot"${rtl}>${esc(REFUSE[L]||REFUSE.en)}<div class="grounded" dir="ltr">0 verified cards matched · nothing generated</div></div>`;
   const tr = L!=="en" && TR[m.card.t] && TR[m.card.t][L];
@@ -1337,11 +1339,28 @@ function botHtml(m){
 /* AI layer: OpenAI picks the one verified card that answers, and writes the reply in the asker's language.
    Server route /api/ask holds the key (env OPENAI_API_KEY). If it is unreachable, the local keyword matcher answers. */
 const AI = {model:null, calls:0};
+/* Personal context for the agent: where this person is in the move, what is done, open, and who they wait on.
+   It contains names and identifiers, so the server runs a PII redaction pass before anything reaches OpenAI. */
+function knownNames(pid){ const n=new Set(); Object.values(PERSONAS).forEach(p=>p.name.split(" ").forEach(x=>n.add(x))); return [...n]; }
+function personaContext(pid){
+  const P=PERSONAS[pid], st=stepsFor(pid).map(x=>({x, r:status(pid,x)}));
+  const T=x=>x.title, ow=o=>({employer:"employer HR/PRO", sponsor:"sponsor (family)", company:"own company", old:"old employer", new:"new employer"}[o]||o);
+  return [
+    `Name: ${P.name}. Role: ${P.role}. Stage: ${state.stage[pid]||"arrived"}. Day ${P.day} of the move.`,
+    `Lives in / looking at: ${P.district}. Office: ${OFFICE[pid]||"n/a"}. Languages: ${P.langs.join(", ")}. Interests: ${P.interests.join(", ")}. Kids: ${P.kids?"yes":"no"}.`,
+    `Situation: ${P.intro}`,
+    `Done: ${st.filter(o=>o.r.s==="done").map(o=>T(o.x)).join("; ")||"nothing yet"}.`,
+    `Can do now: ${st.filter(o=>o.r.s==="available").map(o=>T(o.x)).join("; ")||"none"}.`,
+    `Waiting on others: ${st.filter(o=>o.r.s==="others").map(o=>T(o.x)+" ("+ow(o.r.owner)+")").join("; ")||"none"}.`,
+    `Locked: ${st.filter(o=>o.r.s==="blocked").slice(0,8).map(o=>T(o.x)).join("; ")||"none"}.`,
+    state.life[pid]&&state.life[pid].size?`Life events active: ${[...state.life[pid]].join(", ")}.`:""
+  ].filter(Boolean).join("\n");
+}
 async function aiAsk(q, lang){
   const ctl=new AbortController(); const tm=setTimeout(()=>ctl.abort(), 12000);
   try{
     const r=await fetch("/api/ask",{method:"POST", headers:{"Content-Type":"application/json"}, signal:ctl.signal,
-      body:JSON.stringify({q, lang, persona:PERSONAS[state.persona].name.split(" ")[0], cards:CARDS.map((c,i)=>({id:i,t:c.t,a:c.a,s:c.s,v:c.v}))})});
+      body:JSON.stringify({q, lang, profile:personaContext(state.persona), names:knownNames(state.persona), cards:CARDS.map((c,i)=>({id:i,t:c.t,a:c.a,s:c.s,v:c.v}))})});
     if(!r.ok) return null; const j=await r.json(); if(!j || j.error) return null; AI.model=j.model; AI.calls++; return j;
   }catch(e){ return null; } finally{ clearTimeout(tm); }
 }
@@ -1354,7 +1373,7 @@ async function ask(q){
   if(ai){
     const card = (ai.card!=null && CARDS[ai.card]) ? CARDS[ai.card] : null;
     state.chat.push({card, lang:ai.lang||lang, ai});
-    addLog({who:PERSONAS[state.persona].name.split(" ")[0], what:"asked: “"+q+"”", source:"OpenAI "+ai.model+" · "+(ai.ms||"?")+" ms", opened:[], note: card ? "model chose card: "+card.t+" · replied in "+(ai.langName||ai.lang) : "model found no card that answers → refused to guess"});
+    addLog({who:PERSONAS[state.persona].name.split(" ")[0], what:"asked: “"+q+"”", source:"OpenAI "+ai.model+" · "+(ai.ms||"?")+" ms · PII masked: "+(ai.pii?ai.pii.count:0), opened:[], note: card ? "model chose card: "+card.t+" · replied in "+(ai.langName||ai.lang) : "model found no card that answers → refused to guess"});
   } else {
     state.chat.push({card:r?r.card:null, lang});
     addLog({who:PERSONAS[state.persona].name.split(" ")[0], what:"asked: “"+q+"”", source:"offline matcher · "+LANG_LABEL[lang], opened:[], note: r ? "answered from card: "+r.card.t : "no card matched → refused to guess"});
