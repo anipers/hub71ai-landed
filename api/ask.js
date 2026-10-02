@@ -82,7 +82,10 @@ export default async function handler(req, res) {
         { role: "user", content: `Verified cards:\n${ctx}\n\nProfile (masked):\n${safeProfile}\n\nQuestion: ${safeQ}` },
       ],
     });
-    if (!r.ok) return res.status(502).json({ error: `openai ${r.status}` });
+    if (!r.ok) {
+      let code = ""; try { const e = await r.json(); code = e?.error?.code || e?.error?.type || ""; } catch {}
+      return res.status(502).json({ error: `openai ${r.status}${code ? " " + code : ""}` });
+    }
     const j = await r.json();
     const out = JSON.parse(j.choices?.[0]?.message?.content || "{}");
     const ids = new Set(cards.map((c) => Number(c.id)));
